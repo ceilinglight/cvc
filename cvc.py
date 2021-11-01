@@ -9,6 +9,13 @@ from Bio.Seq import Seq
 
 
 def get_args():
+    """
+    Define program parameters
+
+    Return
+    ------
+    argparse object
+    """
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
@@ -28,6 +35,20 @@ def get_args():
 
 
 def extract_definitions(json_file):
+    """
+    CURRENTLY NOT USING
+    Extract defining mutations from json file
+
+    Parameters
+    ----------
+    jons_file : str
+        json file containing defining mutation in Constellation format
+        See https://github.com/cov-lineages/constellations
+
+    Returns
+    -------
+    DataFrame of defining mutations
+    """
     definitions = pd.read_json(json_file)
     keys = ["lineage", "mutation", "gene", "type", "codon_num", "ref_aa", "alt_aa"]
     var_df = pd.DataFrame(
@@ -39,9 +60,14 @@ def extract_definitions(json_file):
 
 def get_cds_from_genbank(genbank_SeqRecord):
     """
-    Parameter
-    ---------
-    genbank_SeqRecord : Bio.SeqRecord.SeqRecord read from GenBank file
+    Parameters
+    ----------
+    genbank_SeqRecord : Bio.SeqRecord.SeqRecord
+        Read from GenBank file
+
+    Returns
+    -------
+    List of cdses
 
     Note
     ----
@@ -57,8 +83,32 @@ def get_cds_from_genbank(genbank_SeqRecord):
     return cdses
 
 
-def nuc_pos_to_codon_pos(nuc_position, gene_start, codon_start, codon_len=3):
-    """0-indexed"""
+def nuc_pos_to_codon_pos(nuc_position, gene_start, codon_start=1, codon_len=3):
+    """
+    Calculate position of codon on a gene
+
+    Parameters
+    ----------
+    nuc_position : int
+        Position of nucleotide
+    gene_start : int
+        Position of nucleotide at gene position +1
+    codon_start : int
+        Number of nucleotide to offset gene position +1
+        Default : 1
+    codon_len : int
+        Length of nucleotide in one codon
+        Default : 3
+
+    Returns
+    -------
+    int
+        Position of codon
+
+    Note
+    ----
+    0-indexed
+    """
     return (nuc_position-gene_start+codon_start)//codon_len
 
 
