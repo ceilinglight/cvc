@@ -7,6 +7,7 @@ import pandas as pd
 from Bio import SeqIO
 from Bio.Seq import Seq
 
+
 def get_args():
     parser = argparse.ArgumentParser()
 
@@ -28,9 +29,10 @@ def get_args():
 
 def extract_definitions(json_file):
     definitions = pd.read_json(json_file)
+    keys = ["lineage", "mutation", "gene", "type", "codon_num", "ref_aa", "alt_aa"]
     var_df = pd.DataFrame(
-            [i for j in [[[mutation[key] for key in ["lineage", "mutation", "gene", "type", "codon_num", "ref_aa", "alt_aa"]] for mutation in lineage] for lineage in definitions["mutations"]] for i in j],
-            columns=["lineage", "mutation", "gene", "type", "codon_num", "ref_aa", "alt_aa"]
+            [i for j in [[[mutation[key] for key in keys] for mutation in lineage] for lineage in definitions["mutations"]] for i in j],
+            columns=keys
             )
     return var_df
 
@@ -45,7 +47,7 @@ def get_cds_from_genbank(genbank_SeqRecord):
     ----
     0-indexed
     """
-    cdses = [i for i in genbank_SeqRecord.features if i.type=="CDS"]
+    cdses = [i for i in genbank_SeqRecord.features if i.type == "CDS"]
     gene_names = [i.qualifiers["gene"][0] for i in cdses]
     if len(gene_names) != len(set(gene_names)):
         dup_genes = [i for i in set(gene_names) if gene_names.count(i) > 1]
@@ -57,12 +59,12 @@ def get_cds_from_genbank(genbank_SeqRecord):
 
 def nuc_pos_to_codon_pos(nuc_position, gene_start, codon_start, codon_len=3):
     """0-indexed"""
-    return ((nuc_position-gene_start+(codon_start))//codon_len)
+    return (nuc_position-gene_start+codon_start)//codon_len
 
 
 def get_codon_base_pos(nuc_position, gene_start, codon_start, codon_len=3):
     """0-indexed"""
-    return ((nuc_position-gene_start+(codon_start))%codon_len)
+    return (nuc_position-gene_start+codon_start) % codon_len
 
 
 def add_alt_codon(alt_codon_dict, position, alt_nuc, cds):
@@ -148,7 +150,7 @@ def codon_pos_to_nuc_pos(codon_pos, gene_start, codon_start=0):
 def get_nuc_to_codon_coord(cds):
     nuc_pos = [i for part in cds.location.parts for i in list(range(part.start, part.end))]
     nuc_to_codon = {
-        pos : (index//3, index%3)
+        pos: (index//3, index % 3)
         for index, pos in enumerate([
             pos
             for part in cds.location.parts
@@ -161,7 +163,7 @@ def get_nuc_to_codon_coord(cds):
 def get_codon_to_nuc_coord(cds):
     nuc_pos = [i for part in cds.location.parts for i in list(range(part.start, part.end))]
     codon_to_nuc = {
-        codon_num : (nuc_pos[codon_num*3], nuc_pos[codon_num*3+1], nuc_pos[codon_num*3+2])
+        codon_num: (nuc_pos[codon_num*3], nuc_pos[codon_num*3+1], nuc_pos[codon_num*3+2])
         for codon_num in range(int(len(nuc_pos)/3))
     }
     return codon_to_nuc
@@ -257,7 +259,7 @@ def get_mutation_df(variant_df, cdses):
 
 def get_mutated_codons(mutation_df):
     mutated_codon_dict = {}
-    for row in mutation_df.loc[mutation_df.gene!="nuc"].itertuples():
+    for row in mutation_df.loc[mutation_df.gene != "nuc"].itertuples():
         gene = row[2]
         mutation_type = row[3]
         codon_pos = int(row[4])
@@ -280,7 +282,7 @@ def get_mutated_codons(mutation_df):
 
         elif mutation_type == "deletion":
             num_deleted_codons = (len(ref)-1)//3
-            frameshift = (len(ref)-1)%3!=0
+            frameshift = (len(ref)-1) % 3 != 0
             codon_pos += 1
             mutated_codon_dict[gene]["deletion"][codon_pos] = [num_deleted_codons, frameshift]
 
@@ -298,7 +300,7 @@ def main():
     with open(args.variant_table) as in_file:
         lines = in_file.read().strip().split("\n")
     lines = [i.split() for i in lines]
-    lines = [[int(i[0])-1, i[2]] for i in lines if len(i[1])==1 and len(i[2])==1]
+    lines = [[int(i[0])-1, i[2]] for i in lines if len(i[1]) == 1 and len(i[2]) == 1]
     cdses = get_cds_from_genbank(genbank)
     alt_codon_dict = make_alt_codon_dict(lines, cdses)
     get_alt_codon_seq(alt_codon_dict, cdses, genbank, table=1)
