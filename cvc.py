@@ -112,12 +112,55 @@ def nuc_pos_to_codon_pos(nuc_position, gene_start, codon_start=1, codon_len=3):
     return (nuc_position-gene_start+codon_start)//codon_len
 
 
-def get_codon_base_pos(nuc_position, gene_start, codon_start, codon_len=3):
-    """0-indexed"""
+def get_codon_base_pos(nuc_position, gene_start, codon_start=1, codon_len=3):
+    """
+    Calculate base position in a codon
+
+    Parameters
+    ----------
+    nuc_position : int
+        Position of nucleotide
+    gene_start : int
+        Position of nucleotide at gene position +1
+    codon_start : int
+        Number of nucleotide to offset gene position +1
+        Default : 1
+    codon_len : int
+        Length of nucleotide in one codon
+        Default : 3
+
+    Returns
+    -------
+    int
+        Position of base in a codon
+
+    Note
+    ----
+    0-indexed
+    """
     return (nuc_position-gene_start+codon_start) % codon_len
 
 
 def add_alt_codon(alt_codon_dict, position, alt_nuc, cds):
+    """
+    Add an alternative codon to alt_codon_dict
+
+    Parameters
+    ----------
+    alt_codon_dict : dict
+        Nested dict
+        {gene: {codon_num : [alt_codon]}}
+    position : int
+        Position of nucleotide
+    alt_nuc : str
+        Alternative nucleotide
+    cds : genbank_SeqRecord.features with type == "CDS"
+
+    Returns
+    -------
+    Nested dict with a new alt_codon
+    {gene: {codon_num : [alt_codon]}}
+    """
     gene = cds.qualifiers["gene"][0]
     codon_num = nuc_pos_to_codon_pos(
             position,
@@ -144,7 +187,23 @@ def add_alt_codon(alt_codon_dict, position, alt_nuc, cds):
 
 
 def alter_pos(position, cds):
-    """Too complicated?"""
+    """
+    Calculate positions of nucleotide for cdses with multiple parts
+
+    Parameters
+    ----------
+    position : int
+        Position of nucleotide
+    cds : genbank_SeqRecord.features with type == "CDS"
+
+    Returns
+    -------
+    list of int
+
+    Note
+    ----
+    Too complicated?
+    """
     if len(cds.location.parts) > 1:
         positions = []
         if cds.location_operator == "join":
@@ -160,12 +219,13 @@ def alter_pos(position, cds):
         else:
             print(f"WARNING!! The operation {cds.location_operator} in this CDS is not support")
         return positions
-    else:
-        return [position]
+    return [position]
 
 
 def make_alt_codon_dict(pos_alt_nuc_list, cdses):
     """
+    Make a dict containing gene with alternative codons
+
     parameters
     ----------
     pos_alt_nuc_list : nested list
@@ -173,7 +233,8 @@ def make_alt_codon_dict(pos_alt_nuc_list, cdses):
 
     Return
     ------
-    Dictionary of codons?
+    Nested dict
+    {gene: {codon_num : [alt_codon]}}
     """
     alt_codon_dict = {}
     for position, alt_nuc in pos_alt_nuc_list:
