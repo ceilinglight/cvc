@@ -141,6 +141,22 @@ def get_codon_base_pos(nuc_position, gene_start, codon_start=1, codon_len=3):
     return (nuc_position-gene_start+codon_start) % codon_len
 
 
+def codon_pos_to_nuc_pos(codon_pos, gene_start, codon_start=0):
+    """
+    Calculate nucleotide position
+
+    Parameters
+    ----------
+
+    0-indexed
+    """
+    nuc_pos_start = codon_pos*3
+    nuc_pos_start += gene_start
+    nuc_pos_start += codon_start
+    nuc_pos_end = nuc_pos_start+3
+    return nuc_pos_start, nuc_pos_end
+
+
 def add_alt_codon(alt_codon_dict, position, alt_nuc, cds):
     """
     Add an alternative codon to alt_codon_dict
@@ -249,38 +265,58 @@ def make_alt_codon_dict(pos_alt_nuc_list, cdses):
     return alt_codon_dict
 
 
-def codon_pos_to_nuc_pos(codon_pos, gene_start, codon_start=0):
-    """0-indexed"""
-    nuc_pos_start = codon_pos*3
-    nuc_pos_start += gene_start
-    nuc_pos_start += codon_start
-    nuc_pos_end = nuc_pos_start+3
-    return nuc_pos_start, nuc_pos_end
-
-
 def get_nuc_to_codon_coord(cds):
+    """
+    Calculate nucleotide position of CDS and (codon position and nucleotide position in a codon) coordinates
+
+    Parameters
+    ----------
+    cds : genbank_SeqRecord.features with type == "CDS"
+
+    Returns
+    -------
+    dict
+    {int: (int, int)}
+    {nuc_pos: (codon_pos, nuc_pos_of_codon)}
+    {0: (0, 0), 1: (0, 1), 2: (0, 2), 3: (1, 0)}
+    """
     nuc_pos = [i for part in cds.location.parts for i in list(range(part.start, part.end))]
     nuc_to_codon = {
-        pos: (index//3, index % 3)
-        for index, pos in enumerate([
-            pos
-            for part in cds.location.parts
-            for pos in range(part.start, part.end)
-            ])
-    }
+            pos: (index//3, index % 3) for index, pos in enumerate([
+                    pos for part in cds.location.parts for pos in range(part.start, part.end)
+                    ])
+            }
     return nuc_to_codon
 
 
 def get_codon_to_nuc_coord(cds):
+    """
+    Calculate codon position and nucleotide positions of that codon coordinates
+
+
+    Parameters
+    ----------
+    cds : genbank_SeqRecord.features with type == "CDS"
+
+    Returns
+    -------
+    dict
+    {int: (int, int, int)}
+    {0: [0. 1, 2], 1: [3, 4, 5]}
+    {0: [100, 101, 101], 1: [102, 103, 104]}
+    """
     nuc_pos = [i for part in cds.location.parts for i in list(range(part.start, part.end))]
     codon_to_nuc = {
-        codon_num: (nuc_pos[codon_num*3], nuc_pos[codon_num*3+1], nuc_pos[codon_num*3+2])
-        for codon_num in range(int(len(nuc_pos)/3))
-    }
+            codon_num: (nuc_pos[codon_num*3], nuc_pos[codon_num*3+1], nuc_pos[codon_num*3+2])
+            for codon_num in range(int(len(nuc_pos)/3))
+            }
     return codon_to_nuc
 
 
 def get_alt_codon_seq(alt_codon_dict, cdses, genbank, table=1):
+    """
+
+    """
     codon_pos_cdses = {cds.qualifiers["gene"][0]: get_codon_to_nuc_coord(cds) for cds in cdses}
     for cds in cdses:
         gene = cds.qualifiers["gene"][0]
@@ -293,12 +329,23 @@ def get_alt_codon_seq(alt_codon_dict, cdses, genbank, table=1):
                         alt_codon[i] if alt_codon[i] != "x"
                         else ref_codon[i]
                         for i in range(3)
-                ])
+                        ])
                 alt_aa = str(Seq(alt_codon).translate(table=table))
                 print(f"{gene}\t{codon_pos+1}\t{ref_codon}\t{alt_codon}\t{ref_aa}\t{alt_aa}")
 
 
 def classify_mutation(row):
+    """
+    Give mutation type
+
+    Parameters
+    ----------
+    row : row from pandas.DataFrame
+
+    Returns
+    -------
+    str
+    """
     len_ref = len(row["ref"])
     len_alt = len(row["alt"])
     if len_ref == 1 and len_alt == 1:
@@ -311,6 +358,19 @@ def classify_mutation(row):
 
 def import_variant_table(variant_table_file_path):
     """
+    Import variant table and convert it to DataFrame
+
+    Parameters
+    ----------
+    variant_table_file_path : str
+        Path to variant table file
+
+    Returns
+    -------
+    DataFrame
+
+    Notes
+    -----
     Convert position to 0-indexed
     """
     variant_df = pd.read_csv(variant_table_file_path, sep="\t", header=None, names=["pos", "ref", "alt"])
@@ -320,6 +380,20 @@ def import_variant_table(variant_table_file_path):
 
 
 def get_mutation_df(variant_df, cdses):
+    """
+    Find mutations from alternative nucleotides
+
+    Parameters
+    ----------
+    variant_df : DataFrame
+        Alternative nucleotide details
+    cdses : list
+        List of cdses
+
+    Returns
+    -------
+    DataFrame
+    """
     genes = []
     nuc_pos = []
     mutation_type = []
@@ -369,6 +443,19 @@ def get_mutation_df(variant_df, cdses):
 
 
 def get_mutated_codons(mutation_df):
+    """
+    Make a nested dict of alternative codons from DataFrame of alternative nucleotide
+
+    Parameters
+    ----------
+    mutation_df : DataFrame
+
+    Returns
+    -------
+    dict
+    {str: {str: {int: str}}}
+    {gene_name: {type_of_variant: [alternative_codon]}}
+    """
     mutated_codon_dict = {}
     for row in mutation_df.loc[mutation_df.gene != "nuc"].itertuples():
         gene = row[2]
@@ -404,6 +491,9 @@ def get_mutated_codons(mutation_df):
 
 
 def main():
+    """
+    Main function
+    """
     args = get_args()
     genbank = SeqIO.read(args.genbank, "gb")
     variant_df = import_variant_table(args.variant_table)
