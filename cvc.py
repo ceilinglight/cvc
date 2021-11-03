@@ -524,7 +524,7 @@ def parse_vcf(vcf):
     list
     """
     header_section = ""
-    vars = []
+    variants = []
     for line in vcf:
         if line.startswith("##"):
             header_section += line
@@ -535,8 +535,8 @@ def parse_vcf(vcf):
             line = line.strip().split("\t")
             line = {i: j for i, j in zip(column_headers, line)}
             line = format_info(line)
-            vars.append(line)
-    return vars
+            variants.append(line)
+    return variants
 
 
 def main():
