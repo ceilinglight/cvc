@@ -3,6 +3,7 @@
 import argparse
 import numpy
 import pandas as pd
+import sys
 
 from Bio import SeqIO
 from Bio.Seq import Seq
@@ -488,6 +489,54 @@ def get_mutated_codons(mutation_df):
             pass
 
     return mutated_codon_dict
+
+
+def format_info(entry):
+    """
+    Convert INFO column into dict
+
+    Parameters
+    ----------
+    entry : dict
+
+    Returns
+    -------
+    dict
+    """
+    info = entry["INFO"]
+    info = info.split(";")
+    info = {i: j for i, j in [k.split("=") if "=" in k else [k, k] for k in info]}
+    entry["INFO"] = info
+    return entry
+
+
+def parse_vcf(vcf):
+    """
+    Import vcf file and convert into list of dict
+
+    Parameters
+    ----------
+    vcf : _io.TextIOWrapper
+        vcf file handle
+
+    Returns
+    -------
+    list
+    """
+    header_section = ""
+    vars = []
+    for line in vcf:
+        if line.startswith("##"):
+            header_section += line
+        elif line.startswith("#"):
+            column_headers = line.strip().replace("#", "")
+            column_headers = column_headers.strip().split("\t")
+        else:
+            line = line.strip().split("\t")
+            line = {i: j for i, j in zip(column_headers, line)}
+            line = format_info(line)
+            vars.append(line)
+    return vars
 
 
 def main():
