@@ -20,16 +20,17 @@ def get_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-            "variant_table",
-            metavar="variant-table",
-            type=str,
-    )
-
-    parser.add_argument(
             "genbank",
             metavar="reference-genbank",
             type=str,
-    )
+            )
+
+    parser.add_argument(
+            "-v",
+            "--vcf",
+            type=str,
+            help="Path to vcf file"
+            )
 
     args = parser.parse_args()
     return args
@@ -158,9 +159,9 @@ def codon_pos_to_nuc_pos(codon_pos, gene_start, codon_start=0):
     return nuc_pos_start, nuc_pos_end
 
 
-def add_alt_codon(alt_codon_dict, position, alt_nuc, cds):
+def add_alt_codon(alt_codon_dict, position, alt_nuc, frequency, cds):
     """
-    Add an alternative codon to alt_codon_dict
+    Find and add alternative codons to alt_codon_dict
 
     Parameters
     ----------
@@ -171,7 +172,10 @@ def add_alt_codon(alt_codon_dict, position, alt_nuc, cds):
         Position of nucleotide
     alt_nuc : str
         Alternative nucleotide
-    cds : genbank_SeqRecord.features with type == "CDS"
+    frequency : float
+        Frequency of alternative nucleotide
+    cds : genbank_SeqRecord.features
+        with type == "CDS"
 
     Returns
     -------
@@ -191,7 +195,7 @@ def add_alt_codon(alt_codon_dict, position, alt_nuc, cds):
             )
     if gene not in alt_codon_dict.keys():
         alt_codon_dict[gene] = {}
-    codon = alt_codon_dict[gene].get(codon_num, "xxx")
+    codon, _freq = alt_codon_dict[gene].get(codon_num, ["xxx", 0.0])
     if codon[codon_base_pos] == "x":
         codon = codon[:codon_base_pos] + alt_nuc + codon[codon_base_pos+1:]
     else:
@@ -199,7 +203,11 @@ def add_alt_codon(alt_codon_dict, position, alt_nuc, cds):
         print("Multiple variants not supported")
         print(f"{gene}\t{position}\t{alt_nuc}")
         return alt_codon_dict
-    alt_codon_dict[gene][codon_num] = codon
+    alt_codon_dict[gene][codon_num] = dict()
+    alt_codon_dict[gene][codon_num]["nuc"] = position
+    alt_codon_dict[gene][codon_num]["codon"] = codon
+    alt_codon_dict[gene][codon_num]["frequency"] = frequency
+
     return alt_codon_dict
 
 
@@ -211,7 +219,8 @@ def alter_pos(position, cds):
     ----------
     position : int
         Position of nucleotide
-    cds : genbank_SeqRecord.features with type == "CDS"
+    cds : genbank_SeqRecord.features
+        with type == "CDS"
 
     Returns
     -------
@@ -239,30 +248,38 @@ def alter_pos(position, cds):
     return [position]
 
 
-def make_alt_codon_dict(pos_alt_nuc_list, cdses):
+def make_alt_codon_dict(variant_list, cdses):
     """
     Make a dict containing gene with alternative codons
 
     parameters
     ----------
-    pos_alt_nuc_list : nested list
-        Pairs of nucleotide position and alternative nucleotide
+    variant_list : list
+        List of variants
+        [{"CHROM": "Chr1", "POS": 1, "REF": "A", "ID": ".", "ALT", "G", "QUAL": 400, "INFO":{}}, ...]
+    cdses : list
+        list of genbank_SeqRecord.features with type == "CDS"
 
     Return
     ------
     Nested dict
     {gene: {codon_num : [alt_codon]}}
     """
+    pos_alt_nuc_list = [(var["POS"], var["ALT"], var["INFO"]["AF"]) for var in variant_list]
     alt_codon_dict = {}
-    for position, alt_nuc in pos_alt_nuc_list:
+    for position, alt_nuc, frequency in pos_alt_nuc_list:
+        if len(alt_nuc) != 1:
+            continue # Skip indels
         hit_cdses = [cds for cds in cdses if cds.location.start <= position < cds.location.end]
         if not hit_cdses:
             if "nuc" not in alt_codon_dict.keys():
                 alt_codon_dict["nuc"] = {}
             alt_codon_dict["nuc"][position] = alt_nuc
-        for cds in hit_cdses:
-            for alt_position in alter_pos(position, cds):
-                alt_codon_dict = add_alt_codon(alt_codon_dict, alt_position, alt_nuc, cds)
+            alt_codon_dict["nuc"]["frequency"] = frequency
+        else:
+            for cds in hit_cdses:
+                for alt_position in alter_pos(position, cds):
+                    alt_codon_dict = add_alt_codon(alt_codon_dict, alt_position, alt_nuc, float(frequency), cds)
     return alt_codon_dict
 
 
@@ -318,11 +335,13 @@ def get_alt_codon_seq(alt_codon_dict, cdses, genbank, table=1):
     """
 
     """
+    print_flag = True
     codon_pos_cdses = {cds.qualifiers["gene"][0]: get_codon_to_nuc_coord(cds) for cds in cdses}
     for cds in cdses:
         gene = cds.qualifiers["gene"][0]
         if gene in alt_codon_dict.keys():
-            for codon_pos, alt_codon in alt_codon_dict[gene].items():
+            for codon_pos, value in alt_codon_dict[gene].items():
+                nuc_pos, alt_codon, freq = value.values()
                 ref_codon = "".join(genbank[i] for i in codon_pos_cdses[gene][codon_pos])
                 ref_aa = cds.qualifiers["translation"][0]+"*"
                 ref_aa = ref_aa[codon_pos]
@@ -332,7 +351,11 @@ def get_alt_codon_seq(alt_codon_dict, cdses, genbank, table=1):
                         for i in range(3)
                         ])
                 alt_aa = str(Seq(alt_codon).translate(table=table))
-                print(f"{gene}\t{codon_pos+1}\t{ref_codon}\t{alt_codon}\t{ref_aa}\t{alt_aa}")
+                alt_aa = alt_aa if alt_aa != ref_aa else "."
+                if print_flag:
+                    print("\t".join(["pos", "gene", "codon", "ref_codon", "alt_codon", "ref_aa", "alt_aa", "freq"]))
+                    print_flag = False
+                print(f"{nuc_pos+1}\t{gene}\t{codon_pos+1}\t{ref_codon}\t{alt_codon}\t{ref_aa}\t{alt_aa}\t{freq}")
 
 
 def classify_mutation(row):
@@ -380,13 +403,13 @@ def import_variant_table(variant_table_file_path):
     return variant_df
 
 
-def get_mutation_df(variant_df, cdses):
+def get_mutation_df(variant_list, cdses):
     """
     Find mutations from alternative nucleotides
 
     Parameters
     ----------
-    variant_df : DataFrame
+    variant_list : list
         Alternative nucleotide details
     cdses : list
         List of cdses
@@ -404,31 +427,33 @@ def get_mutation_df(variant_df, cdses):
     alt = []
 
     nuc_to_codon_pos = {
-        cds.qualifiers["gene"][0]: get_nuc_to_codon_coord(cds)
-        for cds in cdses
-    }
+            cds.qualifiers["gene"][0]: get_nuc_to_codon_coord(cds)
+            for cds in cdses
+            }
 
-    for row in variant_df.itertuples():
-        nuc_number = int(row[1])
+    for var in variant_list:
+        nuc_number = var["POS"]
+        mut_type = "insertion" if len(var["REF"]) < len(var["ALT"]) else "deletion" if len(var["REF"]) > len(var["ALT"]) else "substitution"
         hit_cdses = [cds for cds in cdses if cds.location.start <= nuc_number < cds.location.end]
         if not hit_cdses:
             genes.append("nuc")
             nuc_pos.append(nuc_number)
-            mutation_type.append(row[4])
+            mutation_type.append(mut_type)
             codon_pos.append(numpy.nan)
             pos_in_codon.append(numpy.nan)
-            ref.append(row[2])
-            alt.append(row[3])
+            ref.append(var["REF"])
+            alt.append(var["ALT"])
+
         else:
             for cds in hit_cdses:
                 gene = cds.qualifiers["gene"][0]
                 genes.append(gene)
                 nuc_pos.append(nuc_number)
-                mutation_type.append(row[4])
+                mutation_type.append(mut_type)
                 codon_pos.append(nuc_to_codon_pos[gene][nuc_number][0])
                 pos_in_codon.append(nuc_to_codon_pos[gene][nuc_number][1])
-                ref.append(row[2])
-                alt.append(row[3])
+                ref.append(var["REF"])
+                alt.append(var["ALT"])
 
     mutation_df = pd.DataFrame({
         "nuc_pos": nuc_pos,
@@ -459,6 +484,7 @@ def get_mutated_codons(mutation_df):
     """
     mutated_codon_dict = {}
     for row in mutation_df.loc[mutation_df.gene != "nuc"].itertuples():
+        nuc_pos = row[1]
         gene = row[2]
         mutation_type = row[3]
         codon_pos = int(row[4])
@@ -483,7 +509,7 @@ def get_mutated_codons(mutation_df):
             num_deleted_codons = (len(ref)-1)//3
             frameshift = (len(ref)-1) % 3 != 0
             codon_pos += 1
-            mutated_codon_dict[gene]["deletion"][codon_pos] = [num_deleted_codons, frameshift]
+            mutated_codon_dict[gene]["deletion"][codon_pos] = [nuc_pos, num_deleted_codons, frameshift]
 
         elif mutation_type == "insertion":
             pass
@@ -522,6 +548,10 @@ def parse_vcf(vcf):
     Returns
     -------
     list
+
+    Notes
+    -----
+    POS is converted to 0-indexed
     """
     header_section = ""
     variants = []
@@ -534,9 +564,27 @@ def parse_vcf(vcf):
         else:
             line = line.strip().split("\t")
             line = {i: j for i, j in zip(column_headers, line)}
+            line["POS"] = int(line["POS"]) - 1
             line = format_info(line)
             variants.append(line)
     return variants
+
+
+def print_nuc_variant(variants_list):
+    """
+    Print variant details
+
+    Parameters
+    ----------
+    variants_list : list
+        list of dict from parse_vcf()
+
+    Notes
+    -----
+    Convert POS back to 1-indexed
+    """
+    for entry in variants_list:
+        print("\t".join([entry["POS"] + 1, entry["REF"], entry["ALT"], f'{float(entry["INFO"]["AF"])*100:>6.2f}']))
 
 
 def main():
@@ -544,24 +592,34 @@ def main():
     Main function
     """
     args = get_args()
-    genbank = SeqIO.read(args.genbank, "gb")
-    variant_df = import_variant_table(args.variant_table)
 
-    with open(args.variant_table) as in_file:
-        lines = in_file.read().strip().split("\n")
-    lines = [i.split() for i in lines]
-    lines = [[int(i[0])-1, i[2]] for i in lines if len(i[1]) == 1 and len(i[2]) == 1]
+    # Read vcf file
+    if args.vcf:
+        with open(args.vcf) as fh:
+            variants = parse_vcf(fh)
+    else:
+        variants = parse_vcf(sys.stdin)
+
+    # Read GenBank file
+    genbank = SeqIO.read(args.genbank, "gb")
     cdses = get_cds_from_genbank(genbank)
-    alt_codon_dict = make_alt_codon_dict(lines, cdses)
+
+    # Check amino acid change
+    alt_codon_dict = make_alt_codon_dict(variants, cdses)
     get_alt_codon_seq(alt_codon_dict, cdses, genbank, table=1)
 
-    mutation_df = get_mutation_df(variant_df, cdses)
+    mutation_df = get_mutation_df(variants, cdses)
     mutated_codon_dict = get_mutated_codons(mutation_df)
+    deletion_flag = True
     for gene, mutation_types in mutated_codon_dict.items():
         for mutation_type, codons in mutation_types.items():
             if mutation_type == "deletion":
+                if deletion_flag:
+                    print("DELETION")
+                    print("\t".join(["pos", "gene", "codon", "num_codons", "frame_shift"]))
+                    deletion_flag = False
                 for codon_pos, details in codons.items():
-                    print(f"{gene}\t{codon_pos+1}\t{details[0]}\t{details[1]}")
+                    print(f"{details[0] + 1}\t{gene}\t{codon_pos+1}\t{details[1]}\t{details[2]}")
 
 
 if __name__ == "__main__":
