@@ -195,7 +195,7 @@ def add_alt_codon(alt_codon_dict, position, alt_nuc, frequency, cds):
             )
     if gene not in alt_codon_dict.keys():
         alt_codon_dict[gene] = {}
-    _pos, codon, _freq = alt_codon_dict[gene].get(codon_num, ["xxx", 0.0])
+    _pos, codon, _freq = alt_codon_dict[gene].get(codon_num, [0, "xxx", 0.0])
     if codon[codon_base_pos] == "x":
         codon = codon[:codon_base_pos] + alt_nuc + codon[codon_base_pos+1:]
     else:
